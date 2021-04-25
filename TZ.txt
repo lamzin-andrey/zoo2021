@@ -1,0 +1,225 @@
+Виртуальный зоопарк:
+- содержит клетки
+- каждая клетка содержит животных одного типа
+- начальные животные:
+- Лев
+- Слон
+- Крокодил
+Каждое животное может выполнять специфические действия к примеру:
+- Лев - рычать, питаться
+- Слон - поливать себя хоботом, питаться
+- Крокодил - плавать, питаться, рычать
+- Каждая клетка должна иметь функцию уборки. Уборка в клетке происходит только при отсутствии в ней животных.
+
+Должно быть написано на Symfony с использованием ООП
+
+
+PLAN:
+0 Запустить Symfony 4   *
+1 Ставим вьютифи и вью	*
+   npm install vuetify ...
+   npm install sass sass-loader deepmerge -D
+
+2 Открываем схему фабричный метод и абстрактная фабрика.
+	Определяемся, что лучше в течении 15 минут.
+	 93 - А-Фабрика
+	 ФабМетод 111   - Склоняюсь пока к нему - для создания.
+	 
+	 Для специфичных действий
+	  Стратегия (300) - скорее всего.
+	  Команда (226) - может быть - в итоге!.
+
+	  В крайнем случае - Фасад (183).
+3 Продумать структуру
+   Клиентский уровнь
+   
+   3.1 Вью апп при нажатии на Добавить клетку отправляет запрос на создание.
+    Бэк принимает запрос, вызывает creator который создает пустую клетку.
+     Кнопка Добавить животное
+     
+     После добавления клетка меняется на конкретную клетку (3.2).
+     Кнопки Добавить, Переместить в клетку, Кормить, Обитатели
+     
+   3.2 При нажатии на кнопку Добавить Льва/Барана/Осла отправляется запрос на добавление животного
+    Бэк принимает запрос, вызывает creator который создает нужное животное и помещает его в клетку.
+    Тут хочется, чтобы была специаальная клетка (сущность связанная один-ко многим с Львами например)
+      (Но тогда придется любо удалять пустую клетку, либо засорять базу. Подумать.)
+     Далее пока проектируем как будто она  у  нас есть.
+     
+    При нажатии на кнопку кормить - алерт "Все Львы/Бараны/Козлы накормлены"
+     Бек принимает запрос, смотрит в id клетки, если там есть хоть один обитатель, отправляет
+      алерт. Если никого нет отправляет алерт "Некого кормить :("
+      
+    При нажатии на кнопку Переместить в клетку - возвращает список клеток для таких животных.
+    
+    После выбора отправляется запрос, в котором объекту сущности другая_клетка назначаются животные из первой клетки
+      Если успею, добавлю создание клетки тут же.
+     
+    После нажатия на Обитатели переходим на страницу клетки, в ней список обитатаелей (карточки)
+	   У карточки с  кнопки  Кормить, Голос!, Переместить (В соответствии с ТЗ для каждого животного)
+	   При нажатии на соответствующую запрос на бек, по ответу алерт с отзывом "Накормлено", "Рьрьрьрь!"
+	   Об этом в пункте N.
+        
+   
+   
+   Как это всё на беке выглядит.
+   
+   База:
+   Для каждого вида животных - сущность
+   Таблица cage_animals (T) для связи id клетки - [id животного+animal_entity_class] - список клеток из неё тянем с group by
+   Для каждого вида клеток - сущность (потому что хочу аннотацию OneToMany почему то сегодня использовать. Ну и вообще оно разумно.)
+   animalTypes сущность {id, entityClassName} для удобства определения, какие специфические действия  доступны тому или иному животному
+   
+   
+   Структура
+   
+   // Начало AnimalController
+		Действия животных.
+		AnimalController->animalCommandAction() {
+			$command = get('command'); // for example voice
+			$animalId = get('id');
+			$animalTypeId = get('typeId');
+			
+			$commandClassName = 'Namespace\' . capitalize($command) . 'Command';
+			$concreteCommand = new $commandClassName();
+			
+			// Тут определяется Reciever и вызывается его action();
+			try {
+				$result = $concreteCommand->execute($command, $animalId, $animalTypeId);
+				// [message, image] - тут уже чисто специфика демо-приложения-тестового-задания - просто пишем что-то или меняем картинку если успеем
+			} catch($e) {
+				return $e->getMessage(); // 'Неизвестная команда для всех видов животных';
+										 // 'Крокодилы не могут лаять'
+										 // 'Коровы не летают'
+			}
+			
+		}
+	// Конец AnimalController
+   
+    // Начало CageController
+    
+		Получить список животных и список кнопок для них
+		CageController->indexAction() {
+			
+			$cageAnimals = $cageAnimalsRepository->find(T.id);
+			$animals = $cageAnimals->getCage()->getAnimals(); // все животные
+			$actions = [];
+			if (isset($animals[0])) {
+				$className = get_class($animals[0]);
+				$typeId = animalTypesRepository->getIdByClassNAme($className);
+				$actions = $className::ACTIONS; // 'feed' => 'Кормить', 'voice' => 'Рьрьрььрь!', ...
+			}
+			
+			return [$animals, $actions, $typeId];
+		}
+    // Конец CageController
+    
+   
+    // Начало CageAnimalsController (CagesController?)
+    
+    нажать на Убрать клетку.
+    CageController->cleaningCageAction() {
+		$cageAnimals = $cageAnimalsRepository->find(T.id);
+		$animals = $cageAnimals->getCage()->getAnimals(); // все животные
+
+		if (0 == count($animals)) {
+			return 'Убрано!';
+		}
+		
+		retun 'Животное съело уборщика, клетка не убрана, разместите вакансию на hh';
+    }
+    
+    
+    нажать на Обитатели
+    Черт с ним пока не spa. Если успею - перенесу в spa
+    Просто ссылка на /cage/[cageAnimalId]
+    
+    
+    Переместить в клетку. Нам приходит T.id - что позволяет определить, какие животные в клетке сидят.
+    CageController->getAllCagesForAnimalsAction() {
+        // Вернет список ConcreteCage.id (LionCage.id or ElephantCage.id)
+		$cages = $cageAnimalsRepository->findCagesByAnimalType(T.id);
+		
+		return cages;
+    }
+    После выбора на фронте клетки
+    CageController->moveAllAnimalsAction() {
+		foreach ($oldCage->getAnimals() as $animal) {
+			$cageAnimalsRepository->bind($targetCage-getId(), $animal->getId());
+		}
+		
+		return ;
+    }
+    
+    
+    Кормить животных в клетке. Нам приходит T.id - что позволяет определить, какие животные в клетке сидят.
+    
+    CageController->feedAllAnimalsOfCageAction() {
+		$cageAnimals = cageAnimalsRepository->find(T.id);
+		$cage = $cageAnimals->getCage();// Конкретная клетка
+		if (0 === count($cage->getAnimals())) {
+			return 'Некого кормить:(';
+		} else {
+			$animal = $cage->getAnimals()[0];
+			$className = get_class($animal);
+			return $className::ALL_ANIMALS_ARE_FED;
+		}
+    }
+    
+    Добавление клетки						*
+    CageController->addCageAction(EmptyCageCreator creator) {
+		cage = creator->newCage();
+    }
+    
+    
+    Добавление животного в клетку.
+    
+    CageController->addLionAction {
+		lion = LionCreator->newAnimal();
+		if (!cageId || !foundedCage instanceof LionCage) {
+			lionCage = LionCageCreator->newCage();
+		} else {
+			lionCage = LionCageRepository->find(cageId);
+		}
+		lionCage->add(lion);
+    }
+    
+    можно
+    
+    CageController->addAnimal(creator, repository) {
+		animal = creator->newAnimal();
+		if (!cageId) {
+			cage = creator->newCage();
+		} else {
+			cage = repository->find(cageId);
+		}
+		cage->add(animl);
+    }
+    
+    тогда 
+	CageController->addLionAction(LionCreator $lionCreator) {
+		$lionCageRepository = getRepository(Lion::class);
+		return $this->addAnimal($lionCreator, $lionCageRepository);
+    }
+    
+    // Конец CageAnimalsController
+     
+   
+4 Создать сущности
+  Лев - имя, вес, возраст
+  Слон
+  Крокодил
+  
+  Пустая клетка. - id, name
+  Клетка со львами.
+  Клетка со слонами.
+  Клетка с крокодилами.
+  
+  CageAnimalsRelation id, animal_id, animal_type_id
+  
+  AnimalType id, entity_name
+  
+  
+5 Кодировать - Тестировать
+6 Заменить Rest на axios
+7 favicon - почему-то не показывается, хотя есть (были из-за этого внезапные проблемы год назад)
